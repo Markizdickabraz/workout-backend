@@ -4,6 +4,10 @@ const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-}, { timestamps: true });
+    birthDate: { type: String },
+    height: { type: Number },
+    weight: { type: Number },
+    gender: { type: String, enum: ['male', 'female', 'other'] }
+});
 
 module.exports = mongoose.model('User', userSchema);

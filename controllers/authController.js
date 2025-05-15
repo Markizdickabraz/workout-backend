@@ -33,3 +33,45 @@ exports.login = async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 };
+
+exports.getProfile = async (req, res) => {
+    try {
+        const user = await User.findOne(req.userId).select('-password');
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        res.json(user);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
+    }
+};
+
+
+exports.updateProfile = async (req, res) => {
+    try {
+        const { name, birthDate, height, weight, gender } = req.body;
+
+        const user = await User.findOne(req.userId);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        if (name !== undefined) user.name = name;
+        if (birthDate !== undefined) user.birthDate = birthDate;
+        if (gender !== undefined) user.gender = gender;
+        if (weight !== undefined) user.weight = weight;
+        if (height !== undefined) user.height = height;
+
+        await user.save();
+
+        res.json({
+            id: req.userId,
+            name: user.name,
+            email: user.email,
+            birthDate: user.birthDate,
+            height: user.height,
+            weight: user.weight,
+            gender: user.gender
+        });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
