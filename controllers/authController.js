@@ -50,7 +50,7 @@ exports.updateProfile = async (req, res) => {
     try {
         const { name, birthDate, height, weight, gender } = req.body;
 
-        const user = await User.findOne(req.userId);
+        const user = await User.findById(req.userId);
         if (!user) return res.status(404).json({ message: 'User not found' });
 
         if (name !== undefined) user.name = name;
