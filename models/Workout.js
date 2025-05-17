@@ -8,6 +8,11 @@ const workoutSchema = new mongoose.Schema({
     sets: { type: Number, required: true },
     date: { type: String, required: true },
     _id: { type: String, required: true },
+    difficulty: {
+        type: String,
+        enum: ['easy', 'hard', ''],
+        default: ''
+    }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Workout', workoutSchema);
