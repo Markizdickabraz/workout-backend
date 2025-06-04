@@ -38,7 +38,15 @@ exports.getProfile = async (req, res) => {
     try {
         const user = await User.findById(req.userId).select('-password');
         if (!user) return res.status(404).json({ message: 'User not found' });
-        res.json(user);
+
+        const userObj = user.toObject();
+
+        if (Array.isArray(userObj.bodyMetrics)) {
+            userObj.bodyMetrics.sort((a, b) => new Date(b.date) - new Date(a.date));
+            userObj.bodyMetrics = userObj.bodyMetrics.slice(0, 5);
+        }
+
+        res.json(userObj);
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: err.message });
@@ -46,9 +54,10 @@ exports.getProfile = async (req, res) => {
 };
 
 
+
 exports.updateProfile = async (req, res) => {
     try {
-        const { name, birthDate, height, weight, gender } = req.body;
+        const { name, birthDate, height, gender, bodyMetrics } = req.body;
 
         const user = await User.findById(req.userId);
         if (!user) return res.status(404).json({ message: 'User not found' });
@@ -56,21 +65,40 @@ exports.updateProfile = async (req, res) => {
         if (name !== undefined) user.name = name;
         if (birthDate !== undefined) user.birthDate = birthDate;
         if (gender !== undefined) user.gender = gender;
-        if (weight !== undefined) user.weight = weight;
         if (height !== undefined) user.height = height;
 
+        if (!Array.isArray(user.bodyMetrics)) {
+            user.bodyMetrics = [];
+        }
+
+        if (bodyMetrics) {
+            const newMetrics = {
+                weight: bodyMetrics[0].weight,
+                neck: bodyMetrics[0].neck,
+                chest: bodyMetrics[0].chest,
+                waist: bodyMetrics[0].waist,
+                hips: bodyMetrics[0].hips,
+                biceps: bodyMetrics[0].biceps,
+                forearm: bodyMetrics[0].forearm,
+                date: new Date()
+            };
+            user.bodyMetrics.push(newMetrics);
+        }
+
         await user.save();
+        const last10Metrics = user.bodyMetrics.slice(-10);
 
         res.json({
             id: req.userId,
             name: user.name,
-            email: user.email,
             birthDate: user.birthDate,
             height: user.height,
-            weight: user.weight,
-            gender: user.gender
+            gender: user.gender,
+            bodyMetrics: last10Metrics
         });
+
     } catch (err) {
+        console.error(err);
         res.status(500).json({ message: err.message });
     }
 };
