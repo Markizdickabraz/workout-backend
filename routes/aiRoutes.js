@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const {processAIRequest, getAIComment, getAICommentByDate} = require('../controllers/aiController');
+const { processAIRequest, getAIComment, getAICommentByDate, consultAI } = require('../controllers/aiController');
 const auth = require('../middleware/authMiddleware');
-const {getComment, getCommentByDate} = require("../controllers/commentController");
 
-router.post('/ask' ,auth, processAIRequest);
-router.get('/',auth , getAIComment);
-router.get('/:date', auth, getAICommentByDate);
+router.post('/ask', auth, processAIRequest);
+router.post('/consult', auth, consultAI);
+router.get('/', auth, getAIComment);
+router.get('/by-date', auth, getAICommentByDate);
 
 module.exports = router;

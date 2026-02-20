@@ -30,7 +30,7 @@ exports.getCommentByDate = async (req, res) => {
 
 exports.addComment = async (req, res) => {
     try {
-        const { date, text, _id,  } = req.body;
+        const { date, text, _id } = req.body;
         const comment = await Comment.create({ userId: req.userId, date, text, _id });
         res.status(201).json(comment);
     } catch (err) {
@@ -50,20 +50,23 @@ exports.deleteComment = async (req, res) => {
 
 exports.updateComment = async (req, res) => {
     try {
-        const { text, _id, date } = req.body;
-        const user = await Comment.findById(req.params.id);
-        if (text !== undefined) user.text = text;
-        if (date !== undefined) user.date = date;
-        if (_id !== undefined) user._id = _id;
+        const { text, date } = req.body;
+        const comment = await Comment.findById(req.params.id);
 
-        await user.save();
+        if (!comment) {
+            return res.status(404).json({ message: 'Comment not found' });
+        }
 
-        res.json({
-            text: user.text,
-            _id,
-            date,
-            userId: req.userId,
-        });
+        if (comment.userId.toString() !== req.userId) {
+            return res.status(403).json({ message: 'Forbidden' });
+        }
+
+        if (text !== undefined) comment.text = text;
+        if (date !== undefined) comment.date = date;
+
+        await comment.save();
+
+        res.json(comment);
     } catch (err) {
         res.status(500).json({ error: 'Failed to update comment' });
     }

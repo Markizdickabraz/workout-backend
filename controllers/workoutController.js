@@ -1,5 +1,4 @@
 const Workout = require('../models/Workout');
-const Comment = require("../models/Comment");
 
 exports.getWorkouts = async (req, res) => {
     try {
@@ -22,28 +21,27 @@ exports.addWorkout = async (req, res) => {
 
 exports.updateWorkout = async (req, res) => {
     try {
-        const { date, name, weight, sets, reps, _id, difficulty } = req.body;
-        const user = await Workout.findById(req.params.id);
-        if (name !== undefined) user.name = name;
-        if (weight !== undefined) user.weight = weight;
-        if (sets !== undefined) user.sets = sets;
-        if (reps !== undefined) user.reps = reps;
-        if (date !== undefined) user.date = date;
-        if (_id !== undefined) user._id = _id;
-        if (difficulty !== undefined) user.difficulty = difficulty;
+        const { date, name, weight, sets, reps, difficulty } = req.body;
+        const workout = await Workout.findById(req.params.id);
 
-        await user.save();
+        if (!workout) {
+            return res.status(404).json({ message: 'Workout not found' });
+        }
 
-        res.json({
-            name,
-            weight,
-            sets,
-            reps,
-            _id,
-            date,
-            difficulty,
-            userId: req.userId,
-        });
+        if (workout.userId.toString() !== req.userId) {
+            return res.status(403).json({ message: 'Forbidden' });
+        }
+
+        if (name !== undefined) workout.name = name;
+        if (weight !== undefined) workout.weight = weight;
+        if (sets !== undefined) workout.sets = sets;
+        if (reps !== undefined) workout.reps = reps;
+        if (date !== undefined) workout.date = date;
+        if (difficulty !== undefined) workout.difficulty = difficulty;
+
+        await workout.save();
+
+        res.json(workout);
 
     } catch (err) {
         res.status(500).json({ message: err.message });

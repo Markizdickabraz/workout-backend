@@ -12,6 +12,9 @@ exports.register = async (req, res) => {
         const user = await User.create({name, email, password: hashedPassword});
 
         const token = jwt.sign({userId: user._id}, process.env.JWT_SECRET, {expiresIn: '7d'});
+        user.isOnline = true;
+        await user.save();
+
         res.status(201).json({token, user: {id: user._id, name: user.name, email: user.email}});
     } catch (err) {
         res.status(500).json({message: err.message});
@@ -28,6 +31,9 @@ exports.login = async (req, res) => {
         if (!isMatch) return res.status(400).json({message: 'Invalid credentials'});
 
         const token = jwt.sign({userId: user._id}, process.env.JWT_SECRET, {expiresIn: '7d'});
+        user.isOnline = true;
+        await user.save();
+
         res.json({token, user: {id: user._id, name: user.name, email: user.email}});
     } catch (err) {
         res.status(500).json({message: err.message});
@@ -71,14 +77,24 @@ exports.updateProfile = async (req, res) => {
         }
 
         if (bodyMetrics) {
+            const m = bodyMetrics[0];
             const newMetrics = {
-                weight: bodyMetrics[0].weight,
-                neck: bodyMetrics[0].neck,
-                chest: bodyMetrics[0].chest,
-                waist: bodyMetrics[0].waist,
-                hips: bodyMetrics[0].hips,
-                biceps: bodyMetrics[0].biceps,
-                forearm: bodyMetrics[0].forearm,
+                weight: m.weight,
+                neck: m.neck,
+                chest: m.chest,
+                waist: m.waist,
+                hips: m.hips,
+                biceps: m.biceps,
+                forearm: m.forearm,
+                bmi: m.bmi,
+                bodyFat: m.bodyFat,
+                subcutaneousFat: m.subcutaneousFat,
+                visceralFat: m.visceralFat,
+                bodyWater: m.bodyWater,
+                muscleMass: m.muscleMass,
+                boneMass: m.boneMass,
+                bmr: m.bmr,
+                metabolicAge: m.metabolicAge,
                 date: new Date()
             };
             user.bodyMetrics.push(newMetrics);
@@ -124,5 +140,36 @@ exports.allUsers = async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error. Unable to fetch users.' });
+    }
+};
+
+exports.logout = async (req, res) => {
+    try {
+        const user = await User.findById(req.userId);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        user.isOnline = false;
+        await user.save();
+
+        res.json({ message: 'Logout successful' });
+    } catch (err) {
+        console.error('Logout error:', err);
+        res.status(500).json({ message: 'Logout failed' });
+    }
+};
+
+exports.getBodyMetricsHistory = async (req, res) => {
+    try {
+        const user = await User.findById(req.userId).select('bodyMetrics');
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        const metrics = (user.bodyMetrics || [])
+            .slice()
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        res.json(metrics);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: err.message });
     }
 };
