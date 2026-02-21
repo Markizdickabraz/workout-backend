@@ -1,6 +1,14 @@
 const User = require('../models/User');
+const Goal = require('../models/Goal');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { estimateMacros } = require('../services/macroEstimator');
+
+const allMetricFields = [
+    'weight', 'neck', 'chest', 'waist', 'hips', 'biceps', 'forearm',
+    'bmi', 'bodyFat', 'subcutaneousFat', 'visceralFat', 'bodyWater',
+    'muscleMass', 'boneMass', 'bmr', 'metabolicAge',
+];
 
 exports.register = async (req, res) => {
     try {
@@ -62,7 +70,7 @@ exports.getProfile = async (req, res) => {
 
 exports.updateProfile = async (req, res) => {
     try {
-        const {name, birthDate, height, gender, bodyMetrics} = req.body;
+        const {name, birthDate, height, gender, activityLevel, jobType, workoutsPerWeek, dailyActivity, bodyMetrics} = req.body;
 
         const user = await User.findById(req.userId);
         if (!user) return res.status(404).json({message: 'User not found'});
@@ -71,6 +79,10 @@ exports.updateProfile = async (req, res) => {
         if (birthDate !== undefined) user.birthDate = birthDate;
         if (gender !== undefined) user.gender = gender;
         if (height !== undefined) user.height = height;
+        if (activityLevel !== undefined) user.activityLevel = activityLevel;
+        if (jobType !== undefined) user.jobType = jobType;
+        if (workoutsPerWeek !== undefined) user.workoutsPerWeek = workoutsPerWeek;
+        if (dailyActivity !== undefined) user.dailyActivity = dailyActivity;
 
         if (!Array.isArray(user.bodyMetrics)) {
             user.bodyMetrics = [];
@@ -78,30 +90,62 @@ exports.updateProfile = async (req, res) => {
 
         if (bodyMetrics) {
             const m = bodyMetrics[0];
-            const newMetrics = {
-                weight: m.weight,
-                neck: m.neck,
-                chest: m.chest,
-                waist: m.waist,
-                hips: m.hips,
-                biceps: m.biceps,
-                forearm: m.forearm,
-                bmi: m.bmi,
-                bodyFat: m.bodyFat,
-                subcutaneousFat: m.subcutaneousFat,
-                visceralFat: m.visceralFat,
-                bodyWater: m.bodyWater,
-                muscleMass: m.muscleMass,
-                boneMass: m.boneMass,
-                bmr: m.bmr,
-                metabolicAge: m.metabolicAge,
-                date: new Date()
-            };
-            user.bodyMetrics.push(newMetrics);
+
+            // Check if there's anything meaningful to save
+            const hasAnyValue = allMetricFields.some(f => m[f] != null && m[f] !== '' && m[f] !== 0);
+
+            if (hasAnyValue) {
+                // Merge with previous latest entry so we don't lose fields
+                // (e.g. user entered BMR last time but didn't re-enter it now)
+                const prevLatest = user.bodyMetrics.length
+                    ? user.bodyMetrics[user.bodyMetrics.length - 1]
+                    : {};
+
+                const newMetrics = { date: new Date() };
+                allMetricFields.forEach(f => {
+                    // Use new value if provided, otherwise carry forward from previous
+                    const newVal = m[f] != null && m[f] !== '' ? m[f] : undefined;
+                    const prevVal = prevLatest[f] != null ? prevLatest[f] : undefined;
+                    if (newVal !== undefined) {
+                        newMetrics[f] = newVal;
+                    } else if (prevVal !== undefined) {
+                        newMetrics[f] = prevVal;
+                    }
+                });
+
+                user.bodyMetrics.push(newMetrics);
+            }
         }
 
         await user.save();
         const last10Metrics = user.bodyMetrics.slice(-10);
+
+        // ── Live-recalculate macro targets after ANY change that affects TDEE ──
+        // Triggers: body metrics, jobType, workoutsPerWeek, dailyActivity, height, gender, birthDate
+        let macroRecalcResult = null;
+        try {
+            const goal = await Goal.findOne({ userId: req.userId });
+            if (goal) {
+                // Use the full saved user document (after .save()) — same data source as goalController
+                const freshUser = await User.findById(req.userId)
+                    .select('bodyMetrics height gender birthDate jobType workoutsPerWeek dailyActivity')
+                    .lean();
+                const macros = estimateMacros(freshUser, goal);
+                console.log('[authController] macro recalc after profile update:', JSON.stringify(macros));
+                if (macros.calories && macros.protein) {
+                    macroRecalcResult = {
+                        method: macros.method,
+                        goalDirection: macros.goalDirection,
+                        targetCaloriesPerDay: macros.calories,
+                        targetProteinPerDay:  macros.protein,
+                        tdee: macros.tdee || null,
+                        calorieAdjustment: macros.calorieAdjustment ?? null,
+                    };
+                }
+            }
+        } catch (macroErr) {
+            console.error('Macro recalc after profile update failed:', macroErr);
+        }
 
         res.json({
             id: req.userId,
@@ -109,7 +153,12 @@ exports.updateProfile = async (req, res) => {
             birthDate: user.birthDate,
             height: user.height,
             gender: user.gender,
-            bodyMetrics: last10Metrics
+            activityLevel: user.activityLevel,
+            jobType: user.jobType,
+            workoutsPerWeek: user.workoutsPerWeek,
+            dailyActivity: user.dailyActivity,
+            bodyMetrics: last10Metrics,
+            ...(macroRecalcResult ? { _macroRecalc: macroRecalcResult } : {}),
         });
 
     } catch (err) {

@@ -7,6 +7,18 @@ const userSchema = new mongoose.Schema({
     birthDate: { type: String },
     height: { type: Number },
     gender: { type: String, enum: ['male', 'female', 'other'] },
+
+    // ── Активність для розрахунку TDEE (3 незалежних фактори) ──────
+    // Тип роботи: сидяча, стояча, фізична
+    jobType: { type: String, enum: ['desk', 'standing', 'physical'], default: 'desk' },
+    // Тренувань на тиждень: 0–7
+    workoutsPerWeek: { type: Number, min: 0, max: 7, default: 3 },
+    // Побутова активність (ходьба, кроки поза тренуваннями)
+    dailyActivity: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
+
+    // legacy — залишаємо для зворотної сумісності, але більше не використовуємо для TDEE
+    activityLevel: { type: String, enum: ['sedentary', 'light', 'moderate', 'active', 'very_active'], default: 'moderate' },
+
     isOnline: { type: Boolean, default: false },
 
     bodyMetrics: [{
