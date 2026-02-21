@@ -5,6 +5,7 @@ const Workout = require('../models/Workout');
 const AIComment = require('../models/AIComment');
 const Meal = require('../models/Meal');
 const Goal = require('../models/Goal');
+const Cardio = require('../models/Cardio');
 const { estimateMacros } = require('../services/macroEstimator');
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -65,11 +66,12 @@ async function callAI(promptText) {
 
 // ─── Shared data fetchers ─────────────────────────────────────────
 async function fetchUserContext(userId, user) {
-    const [goal, workouts, meals, comments] = await Promise.all([
+    const [goal, workouts, meals, comments, cardioSessions] = await Promise.all([
         Goal.findOne({ userId }),
         Workout.find({ userId }).sort({ date: -1 }).limit(100),
         Meal.find({ userId }).sort({ date: -1 }).limit(100),
         Comment.find({ userId }).limit(10).sort({ createdAt: -1 }),
+        Cardio.find({ userId }).sort({ date: -1 }).limit(50),
     ]);
 
     const bodyMetrics = (user.bodyMetrics || [])
@@ -77,14 +79,15 @@ async function fetchUserContext(userId, user) {
         .sort((a, b) => new Date(b.date) - new Date(a.date))
         .slice(0, 20);
 
-    return { goal, workouts, meals, comments, bodyMetrics };
+    return { goal, workouts, meals, comments, bodyMetrics, cardioSessions };
 }
 
 // ─── Daily auto-generate prompt ───────────────────────────────────
-function buildDailyPrompt(user, { goal, workouts, meals, comments, bodyMetrics }) {
+function buildDailyPrompt(user, { goal, workouts, meals, comments, bodyMetrics, cardioSessions }) {
     const macros = goal ? estimateMacros(user, goal) : null;
     const goalInfo = goal ? buildGoalInfo(goal, macros) : 'Цілі не встановлені.';
     const workoutInfo = buildWorkoutInfo(workouts);
+    const cardioInfo = buildCardioInfo(cardioSessions);
     const mealInfo = buildMealInfo(meals);
     const bodyInfo = buildBodyInfo(bodyMetrics, user);
 
@@ -103,6 +106,7 @@ function buildDailyPrompt(user, { goal, workouts, meals, comments, bodyMetrics }
 ${goalInfo}
 
 ${workoutInfo}
+${cardioInfo}
 ${mealInfo}
 ${bodyInfo}
 
@@ -112,6 +116,7 @@ ${commentsInfo}
 Інструкції:
 - Напиши пораду на день та прогноз на наступне тренування
 - Порівняй прогрес з цілями
+- Враховуй кардіо-навантаження при аналізі
 - Будь мотивуючим, але реалістичним
 - Суворо 2 блоки, по 300 символів максимум кожен
 - Формат: ## Порада на день\n<текст>\n## Прогноз на тренування\n<текст>
@@ -120,13 +125,19 @@ ${commentsInfo}
 }
 
 // ─── Consultant prompt ────────────────────────────────────────────
-function buildConsultPrompt(user, context, question, { goal, workouts, meals, bodyMetrics }) {
+function buildConsultPrompt(user, context, question, { goal, workouts, meals, bodyMetrics, cardioSessions }) {
     const macros = goal ? estimateMacros(user, goal) : null;
     const goalInfo = goal ? buildGoalInfo(goal, macros) : 'Цілі не встановлені.';
 
     let contextData = '';
     if (context === 'workouts' || context === 'general') {
         contextData += buildWorkoutInfo(workouts);
+        contextData += buildCardioInfo(cardioSessions);
+    }
+    if (context === 'cardio' || context === 'general') {
+        if (context === 'cardio') {
+            contextData += buildCardioInfo(cardioSessions);
+        }
     }
     if (context === 'meals' || context === 'general') {
         contextData += buildMealInfo(meals);
@@ -137,9 +148,10 @@ function buildConsultPrompt(user, context, question, { goal, workouts, meals, bo
 
     const contextLabels = {
         workouts: 'тренувань',
+        cardio: 'кардіо-тренувань',
         meals: 'харчування',
         body: 'метрик тіла',
-        general: 'загальний (тренування + харчування + тіло)',
+        general: 'загальний (тренування + кардіо + харчування + тіло)',
     };
 
     return `
@@ -202,7 +214,7 @@ exports.consultAI = async (req, res) => {
         const userId = req.userId;
         const { context = 'general', question } = req.body;
 
-        const validContexts = ['workouts', 'meals', 'body', 'general'];
+        const validContexts = ['workouts', 'cardio', 'meals', 'body', 'general'];
         if (!validContexts.includes(context)) {
             return res.status(400).json({ message: `Невірний контекст. Допустимі: ${validContexts.join(', ')}` });
         }
@@ -554,6 +566,68 @@ function buildBodyInfo(bodyMetrics, user) {
         });
         if (changes.length) info += `Зміни: ${changes.join(', ')}\n`;
     }
+
+    return info;
+}
+
+function buildCardioInfo(cardioSessions) {
+    if (!cardioSessions || !cardioSessions.length) return '\n🏃 Кардіо: немає даних.\n';
+
+    const typeLabels = {
+        running: 'Біг', cycling: 'Велосипед', swimming: 'Плавання',
+        walking: 'Ходьба', rowing: 'Веслування', elliptical: 'Еліптичний',
+        stair_climber: 'Сходи', jump_rope: 'Скакалка', hiking: 'Піший туризм', other: 'Інше',
+    };
+
+    let info = '\n🏃 КАРДІО-ТРЕНУВАННЯ:\n';
+    info += `Всього сесій: ${cardioSessions.length}\n`;
+
+    // Group by type
+    const byType = {};
+    let totalDuration = 0;
+    let totalDistance = 0;
+    let totalCalories = 0;
+    const hrValues = [];
+
+    cardioSessions.forEach(s => {
+        const t = s.type || 'other';
+        if (!byType[t]) byType[t] = { count: 0, duration: 0, distance: 0, calories: 0 };
+        byType[t].count += 1;
+        byType[t].duration += s.duration || 0;
+        byType[t].distance += s.distance || 0;
+        byType[t].calories += s.calories || 0;
+        totalDuration += s.duration || 0;
+        totalDistance += s.distance || 0;
+        totalCalories += s.calories || 0;
+        if (s.avgHeartRate) hrValues.push(s.avgHeartRate);
+    });
+
+    info += `Загальна тривалість: ${Math.floor(totalDuration / 60)}г ${totalDuration % 60}хв\n`;
+    info += `Загальна відстань: ${totalDistance.toFixed(1)} км\n`;
+    info += `Загальні калорії: ${totalCalories} ккал\n`;
+    if (hrValues.length) {
+        const avgHR = Math.round(hrValues.reduce((s, v) => s + v, 0) / hrValues.length);
+        info += `Середній пульс: ${avgHR} уд/хв\n`;
+    }
+
+    info += 'По типах:\n';
+    Object.entries(byType).forEach(([type, data]) => {
+        const label = typeLabels[type] || type;
+        info += `- ${label}: ${data.count} разів, ${data.duration} хв, ${data.distance.toFixed(1)} км, ${data.calories} ккал\n`;
+    });
+
+    // Last 5 sessions details
+    const recent = cardioSessions.slice(0, 5);
+    info += 'Останні сесії:\n';
+    recent.forEach(s => {
+        const label = typeLabels[s.type] || s.customType || s.type;
+        let line = `- ${s.date} ${label}: ${s.duration}хв`;
+        if (s.distance) line += `, ${s.distance}км`;
+        if (s.avgHeartRate) line += `, пульс ${s.avgHeartRate}`;
+        if (s.calories) line += `, ${s.calories}ккал`;
+        if (s.avgPace) line += `, темп ${s.avgPace}хв/км`;
+        info += line + '\n';
+    });
 
     return info;
 }

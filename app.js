@@ -9,6 +9,7 @@ const userRoutes = require('./routes/userRoutes');
 const newsRoutes = require('./routes/newsRoutes');
 const mealRoutes = require('./routes/mealRoutes');
 const goalRoutes = require('./routes/goalRoutes');
+const cardioRoutes = require('./routes/cardioRoutes');
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/meals', mealRoutes);
 app.use('/api/goals', goalRoutes);
+app.use('/api/cardio', cardioRoutes);
 
 module.exports = app;
 
