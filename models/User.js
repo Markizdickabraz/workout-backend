@@ -3,7 +3,10 @@ const mongoose = require('mongoose');
 const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+    password: { type: String },  // optional for Google auth users
+    googleId: { type: String },  // Google OAuth subject ID
+    avatar: { type: String },    // Google profile picture URL
+    authProvider: { type: String, enum: ['local', 'google'], default: 'local' },
     birthDate: { type: String },
     height: { type: Number },
     gender: { type: String, enum: ['male', 'female', 'other'] },

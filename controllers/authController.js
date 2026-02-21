@@ -2,7 +2,10 @@ const User = require('../models/User');
 const Goal = require('../models/Goal');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const { estimateMacros } = require('../services/macroEstimator');
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const allMetricFields = [
     'weight', 'neck', 'chest', 'waist', 'hips', 'biceps', 'forearm',
@@ -35,6 +38,11 @@ exports.login = async (req, res) => {
         const user = await User.findOne({email});
         if (!user) return res.status(400).json({message: 'Invalid credentials'});
 
+        // If user registered via Google and has no password
+        if (!user.password) {
+            return res.status(400).json({message: 'Цей акаунт створено через Google. Використовуйте вхід через Google.'});
+        }
+
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({message: 'Invalid credentials'});
 
@@ -45,6 +53,66 @@ exports.login = async (req, res) => {
         res.json({token, user: {id: user._id, name: user.name, email: user.email}});
     } catch (err) {
         res.status(500).json({message: err.message});
+    }
+};
+
+exports.googleAuth = async (req, res) => {
+    try {
+        const { credential } = req.body;
+        if (!credential) {
+            return res.status(400).json({ message: 'Google credential is required' });
+        }
+
+        // Verify the Google ID token
+        const ticket = await googleClient.verifyIdToken({
+            idToken: credential,
+            audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        const { sub: googleId, email, name, picture } = payload;
+
+        if (!email) {
+            return res.status(400).json({ message: 'Google account has no email' });
+        }
+
+        // Find existing user by googleId or email
+        let user = await User.findOne({ $or: [{ googleId }, { email }] });
+
+        if (user) {
+            // Link Google to existing local account if not yet linked
+            if (!user.googleId) {
+                user.googleId = googleId;
+                user.authProvider = user.authProvider === 'local' ? 'local' : 'google';
+                if (picture && !user.avatar) user.avatar = picture;
+            }
+            user.isOnline = true;
+            await user.save();
+        } else {
+            // Create a new user (no password needed for Google users)
+            user = await User.create({
+                name: name || email.split('@')[0],
+                email,
+                googleId,
+                avatar: picture || '',
+                authProvider: 'google',
+                isOnline: true,
+            });
+        }
+
+        const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+        res.json({
+            token,
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                avatar: user.avatar,
+            },
+        });
+    } catch (err) {
+        console.error('Google auth error:', err);
+        res.status(401).json({ message: 'Google authentication failed' });
     }
 };
 
